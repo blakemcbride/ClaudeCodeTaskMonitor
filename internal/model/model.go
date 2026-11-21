@@ -10,6 +10,7 @@ import (
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/discover"
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/procinfo"
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/transcript"
+	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/usage"
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/vcsinfo"
 )
 
@@ -69,6 +70,7 @@ type Session struct {
 	Version    string `json:"version,omitempty"`
 	State      string `json:"state"`
 	WaitingFor string `json:"waitingFor,omitempty"`
+	Remote     bool   `json:"remote,omitempty"` // Remote Control is on
 	Asking     string `json:"asking,omitempty"` // the pending tool call or question
 	Since      int64  `json:"since"`            // when it entered State
 	StartedAt  int64  `json:"startedAt"`
@@ -125,6 +127,7 @@ type Counts struct {
 	Busy     int `json:"busy"`
 	Idle     int `json:"idle"`
 	Stuck    int `json:"stuck"`
+	Remote   int `json:"remote"` // sessions with Remote Control on
 }
 
 // Snapshot is everything shown at one moment.
@@ -135,6 +138,7 @@ type Snapshot struct {
 	CostToday float64       `json:"costToday"`
 	ShowCost  bool          `json:"showCost"`
 	Private   bool          `json:"private"`
+	Usage     *usage.Info   `json:"usage,omitempty"` // plan limits, when known
 	Projects  []Project     `json:"projects"`
 }
 
@@ -169,6 +173,7 @@ func BuildSession(in Input, opt Options, now time.Time) Session {
 		PID: f.PID, SessionID: f.SessionID, Name: f.Name, Kind: f.Kind, Version: f.Version,
 		State: stateOf(f.Status), Since: f.StatusUpdatedAt, StartedAt: f.StartedAt,
 		TotalsComplete: true,
+		Remote:         f.BridgeSessionID != "",
 	}
 	if s.Name == "" {
 		s.Name = filepath.Base(f.Cwd)
@@ -278,6 +283,9 @@ func Build(inputs []Input, host procinfo.Host, opt Options, now time.Time) Snaps
 		}
 		if s.Stuck {
 			snap.Counts.Stuck++
+		}
+		if s.Remote {
+			snap.Counts.Remote++
 		}
 		snap.CostToday += s.CostToday
 		p := byPath[in.File.Cwd]

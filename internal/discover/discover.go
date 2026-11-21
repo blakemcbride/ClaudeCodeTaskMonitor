@@ -25,6 +25,9 @@ type Session struct {
 	WaitingFor      string `json:"waitingFor"`
 	UpdatedAt       int64  `json:"updatedAt"`
 	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+	// BridgeSessionID is set while Remote Control is linked and cleared
+	// when it is turned off.
+	BridgeSessionID string `json:"bridgeSessionId"`
 }
 
 // ConfigDir returns the Claude Code config directory.

@@ -198,6 +198,9 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 	if c.Stuck > 0 {
 		fmt.Fprintf(w, " · %d possibly stuck", c.Stuck)
 	}
+	if c.Remote > 0 {
+		fmt.Fprintf(w, " · %d with Remote Control", c.Remote)
+	}
 	if snap.ShowCost && snap.CostToday > 0 {
 		fmt.Fprintf(w, " · about $%.2f today", snap.CostToday)
 	}
@@ -216,6 +219,21 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 			fmt.Fprintf(w, " · swap %s of %s", size(h.SwapUsed), size(h.SwapTotal))
 		}
 		fmt.Fprintln(w)
+	}
+	if u := snap.Usage; u != nil && len(u.Limits) > 0 {
+		var parts []string
+		for _, l := range u.Limits {
+			part := fmt.Sprintf("%s %.0f%%", l.Label, l.Percent)
+			if l.ResetsAt > 0 {
+				part += " (resets " + time.UnixMilli(l.ResetsAt).Local().Format("Mon 3:04 PM") + ")"
+			}
+			parts = append(parts, part)
+		}
+		line := "Plan usage"
+		if u.Plan != "" {
+			line += " [" + u.Plan + "]"
+		}
+		fmt.Fprintf(w, "%s: %s · as of %s\n", line, strings.Join(parts, " · "), agoText(u.FetchedAt, now))
 	}
 	for _, p := range snap.Projects {
 		fmt.Fprintf(w, "\n%s  %s", p.Name, p.Path)
@@ -286,6 +304,9 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 			if s.TranscriptBytes > 0 {
 				d = append(d, "transcript "+size(uint64(s.TranscriptBytes)))
 			}
+			if s.Remote {
+				d = append(d, "Remote Control on")
+			}
 			if s.PermissionMode != "" {
 				d = append(d, "mode "+s.PermissionMode)
 			}
@@ -315,6 +336,14 @@ func oneLine(s string, n int) string {
 		return string(r[:n]) + "…"
 	}
 	return s
+}
+
+func agoText(msEpoch int64, now time.Time) string {
+	if a := age(msEpoch, now); a != "just now" && a != "?" {
+		return a + " ago"
+	} else {
+		return a
+	}
 }
 
 func age(msEpoch int64, now time.Time) string {

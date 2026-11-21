@@ -80,6 +80,15 @@ func TestStuck(t *testing.T) {
 	}
 }
 
+func TestRemoteControl(t *testing.T) {
+	on := file(1, "/p", "idle")
+	on.BridgeSessionID = "session_abc"
+	snap := Build([]Input{{File: on}, {File: file(2, "/p", "idle")}}, procinfo.Host{}, DefaultOptions(), now)
+	if snap.Counts.Remote != 1 || !snap.Projects[0].Sessions[0].Remote || snap.Projects[0].Sessions[1].Remote {
+		t.Fatalf("%+v", snap.Counts)
+	}
+}
+
 func TestPrivateWithholdsReply(t *testing.T) {
 	opt := DefaultOptions()
 	opt.Private = true

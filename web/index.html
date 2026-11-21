@@ -29,8 +29,9 @@ button { background: var(--panel); border: 1px solid var(--line); border-radius:
 button:hover { border-color: var(--dim); }
 input[type=time], select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 a, .link { color: var(--link); cursor: pointer; text-decoration: underline; background: none; border: 0; padding: 0; }
-.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; justify-content: space-between; }
-.ram { flex: 1 1 380px; max-width: 560px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; }
+.top { display: grid; grid-template-columns: minmax(250px, auto) minmax(300px, 1fr) minmax(300px, 1fr); gap: 12px 16px; align-items: start; }
+@media (max-width: 1000px) { .top { grid-template-columns: 1fr; } }
+.ram { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; }
 .ram .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .ram .head b { font-size: 18px; }
 .ram .bar { display: flex; height: 12px; border-radius: 6px; background: var(--idle-bg); margin: 6px 0 5px; overflow: hidden; }
@@ -39,12 +40,22 @@ a, .link { color: var(--link); cursor: pointer; text-decoration: underline; back
 .ram.critical { border-color: var(--bad); } .ram.critical .head b { color: var(--bad); }
 .ram .key { font-size: 12px; color: var(--dim); }
 .ram .key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+.use .line { display: grid; grid-template-columns: 135px 1fr 40px; gap: 0 10px; align-items: center; margin-top: 6px; }
+.use .line .bar { margin: 0; height: 10px; }
+.use .line .bar i { background: var(--ok); }
+.use .line.warn .bar i { background: var(--wait); } .use .line.err .bar i { background: var(--bad); }
+.use .line b { text-align: right; }
+.use .line.warn, .use .line.err { font-weight: 400; }
+.use .line.warn b { color: var(--wait); } .use .line.err b { color: var(--bad); }
+.use .when { grid-column: 1 / -1; }
+.use > .when { margin-top: 6px; }
 .controls { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: flex-end; margin: 10px 0 14px; font-size: 13px; }
 .controls label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill.waiting { color: var(--wait); background: var(--wait-bg); border: 1px solid var(--wait); }
 .pill.blocked, .pill.stuck { color: var(--bad); background: var(--bad-bg); }
 .pill.busy { color: var(--ok); background: var(--ok-bg); }
+.pill.remote { color: var(--link); border: 1px solid var(--link); }
 .pill.idle, .pill.unknown { color: var(--idle); background: var(--idle-bg); }
 .banner { border: 1px solid var(--wait); border-radius: 10px; background: var(--panel); margin-bottom: 14px; }
 .banner h2 { font-size: 15px; margin: 0; padding: 10px 16px; }
@@ -95,6 +106,7 @@ a, .link { color: var(--link); cursor: pointer; text-decoration: underline; back
       <div id="summary">connecting…</div>
       <div class="sub"><span id="conn"></span><span id="extra"></span></div>
     </div>
+    <div id="usage"></div>
     <div id="ram"></div>
   </div>
 
@@ -175,6 +187,7 @@ function render() {
   if (snap.showCost && snap.costToday > 0) extra.push("about " + money(snap.costToday) + " today in these sessions");
   $("extra").textContent = extra.length ? " · " + extra.join(" · ") : "";
 
+  renderUsage();
   renderRam();
   renderBanner();
   renderTiles(c);
@@ -183,6 +196,50 @@ function render() {
   if (!snap.projects.length) box.append(el("div", "empty", "No Claude Code sessions are running."));
   for (const p of snap.projects) box.append(renderProject(p));
   updateTab(c);
+}
+
+// Plan limits, as Claude Code last cached them (the figures /usage shows).
+function usageLevel(l) {
+  return l.percent >= 90 || l.severity === "critical" || l.severity === "exceeded" ? "err"
+    : l.percent >= 75 || (l.severity && l.severity !== "normal") ? "warn" : "";
+}
+function resetText(ms) {
+  if (!ms) return "";
+  const d = new Date(ms), left = ms - Date.now();
+  if (left <= 0) return "resets now";
+  const when = d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  const h = left / 3600000;
+  const inText = h < 1 ? Math.max(1, Math.round(left / 60000)) + " min" : h < 48 ? Math.round(h) + " h" : Math.round(h / 24) + " days";
+  return "resets " + when + " (in " + inText + ")";
+}
+function renderUsage() {
+  const box = $("usage");
+  box.replaceChildren();
+  const u = snap.usage;
+  if (!u || !u.limits || !u.limits.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const panel = el("div", "ram use");
+  const head = el("div", "head");
+  const left = el("span");
+  left.append(el("b", "", "Plan usage"), u.plan ? " " + u.plan : "");
+  const stale = Date.now() - u.fetchedAt > 30 * 60000;
+  head.append(left, el("span", stale ? "warn" : "dim", u.fetchedAt ? "as of " + (ago(u.fetchedAt) || "just now") : ""));
+  panel.append(head);
+  // One reset line serves the whole panel when every limit resets together.
+  const together = u.limits.every(l => Math.abs((l.resetsAt || 0) - (u.limits[0].resetsAt || 0)) < 60000);
+  for (const l of u.limits) {
+    const line = el("div", "line " + usageLevel(l));
+    const bar = el("div", "bar"), fill = el("i");
+    fill.style.width = Math.max(0, Math.min(100, l.percent)).toFixed(1) + "%";
+    bar.append(fill);
+    line.append(el("span", "", l.label), bar, el("b", "", Math.round(l.percent) + "%"));
+    const when = resetText(l.resetsAt);
+    if (when && !together) line.append(el("span", "key when", when));
+    panel.append(line);
+  }
+  if (together && resetText(u.limits[0].resetsAt)) panel.append(el("div", "key when", resetText(u.limits[0].resetsAt)));
+  panel.title = "Read from Claude Code's own cache; it updates when a session refreshes it.";
+  box.append(panel);
 }
 
 // Free RAM below these shares of the total is flagged.
@@ -265,6 +322,7 @@ function renderTiles(c) {
   tile(c.busy, "working");
   tile(c.idle, "idle");
   tile(c.stuck, "possibly stuck", "bad");
+  tile(c.remote || 0, "Remote Control on");
 }
 
 function renderProject(p) {
@@ -313,6 +371,11 @@ function renderSession(s) {
   who.append(el("b", "", s.name), el("span", "", s.title || "pid " + s.pid));
   const pills = el("div", "pills");
   pills.append(el("span", "pill " + s.state, LABEL[s.state] || s.state));
+  if (s.remote) {
+    const rc = el("span", "pill remote", "remote on");
+    rc.title = "Remote Control is on: this session can be driven from claude.ai or the mobile app.";
+    pills.append(rc);
+  }
   if (s.stuck) { const st = el("span", "pill stuck", "stuck?"); st.title = s.stuckReason || ""; pills.append(st); }
   const body = el("div", "body");
 
@@ -462,6 +525,19 @@ function fire(title, body, spoken, tag) {
   }
 }
 
+const usageAlerted = new Map(); // limit label -> level last alerted
+function checkUsage() {
+  const u = snap.usage;
+  if (!u || !u.limits) return;
+  for (const l of u.limits) {
+    const level = usageLevel(l), prev = usageAlerted.get(l.label) || "";
+    if (!firstSnapshot && level && level !== prev && (level === "err" || !prev))
+      fire("Plan usage: " + l.label + " at " + Math.round(l.percent) + "%", resetText(l.resetsAt),
+        l.label + " usage is at " + Math.round(l.percent) + " percent", "ccmon-usage-" + l.label);
+    usageAlerted.set(l.label, level);
+  }
+}
+
 let lastRamLevel = "";
 function checkRam() {
   const level = ramLevel();
@@ -479,6 +555,7 @@ let firstSnapshot = true;
 
 function checkAlerts() {
   checkRam();
+  checkUsage();
   const live = new Set();
   for (const p of snap.projects) for (const s of p.sessions) {
     live.add(s.pid);

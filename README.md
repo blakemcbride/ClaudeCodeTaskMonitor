@@ -70,7 +70,15 @@ For a terminal, or over SSH:
 
 ## What it shows
 
-A panel at the top shows the machine's memory: how much is free, how much the
+Two panels sit at the top.
+
+**Plan usage** shows how much of your plan's limits you have used and when
+they reset: the same figures as Claude Code's `/usage` command. They are read
+from the copy Claude Code caches on disk, so they are as fresh as the last
+time a session refreshed them; the panel says how old they are. The panel is
+absent when Claude Code has cached nothing, for example with API-key billing.
+
+**RAM** shows the machine's memory: how much is free, how much the
 Claude sessions are using (including the programs they started) against
 everything else, and swap. It turns amber when less than 15% is free and red
 below 7%.
@@ -90,6 +98,8 @@ you last typed in it, and its git or Subversion state. Each session shows:
 - Model, context used and how close it is to the limit, transcript size and
   permission mode.
 - Memory and CPU of the session and everything it started.
+- Whether Remote Control is on, so you can see which sessions can be driven
+  from claude.ai or the mobile app.
 - Tokens used and an estimated cost.
 - Recent tool errors, and a **stuck?** flag when a session has been working
   with no activity for 15 minutes or keeps failing the same tool call.
@@ -102,7 +112,8 @@ running with permission prompts bypassed.
 The controls at the top of the page turn on a chime, a spoken message and
 desktop notifications. They fire when a session starts waiting on you,
 becomes blocked, nears its context limit or looks stuck, and when the
-machine's free RAM falls below 15% and again below 7%.
+machine's free RAM falls below 15% and again below 7%, or a plan limit
+passes 75% and again 90%.
 
 - **remind** repeats the alert while a session is still waiting.
 - **when a turn finishes** also alerts when a session goes idle after working
@@ -175,7 +186,8 @@ they could read the transcript files directly.
 Claude Code keeps a small file per running session in
 `~/.claude/sessions/` with its process id, working directory and status, and
 appends each session's conversation to a transcript under
-`~/.claude/projects/`. `ccmon` re-reads the session files every second and
+`~/.claude/projects/`. Plan usage comes from `~/.claude.json`, from which
+only the cached usage figures and the plan name are read. `ccmon` re-reads the session files every second and
 reads only what has been appended to each transcript, so transcripts of
 several hundred megabytes cost almost nothing to follow.
 

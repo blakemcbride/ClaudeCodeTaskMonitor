@@ -10,6 +10,7 @@ import (
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/model"
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/procinfo"
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/transcript"
+	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/usage"
 	"github.com/blakemcbride/ClaudeCodeTaskMonitor/internal/vcsinfo"
 )
 
@@ -24,6 +25,7 @@ type Collector struct {
 	mu         sync.Mutex
 	trackers   map[string]*transcript.Tracker // by session id
 	sampler    *procinfo.Sampler
+	usage      *usage.Reader
 	git        *vcsinfo.Cache
 	stats      map[int]procinfo.Stats
 	host       procinfo.Host
@@ -36,6 +38,7 @@ func New(configDir string, opt model.Options) *Collector {
 		ConfigDir: configDir, Options: opt,
 		trackers:   map[string]*transcript.Tracker{},
 		sampler:    procinfo.NewSampler(),
+		usage:      usage.NewReader(configDir),
 		git:        vcsinfo.NewCache(),
 		stats:      map[int]procinfo.Stats{},
 		StatsEvery: 5 * time.Second,
@@ -109,7 +112,9 @@ func (c *Collector) Collect() model.Snapshot {
 			delete(c.trackers, id)
 		}
 	}
-	return model.Build(inputs, c.host, c.Options, now)
+	snap := model.Build(inputs, c.host, c.Options, now)
+	snap.Usage = c.usage.Read()
+	return snap
 }
 
 // TotalsPending reports whether any transcript is still being summed.
