@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude sessions</title>
+<style>
+:root {
+  --bg: #17181a; --panel: #1e2023; --line: #303338; --text: #e8e9eb; --dim: #9aa0a8;
+  --wait: #f0b23e; --wait-bg: #3a2d10; --ok: #58c98b; --ok-bg: #173526;
+  --bad: #ff7a70; --bad-bg: #40201d; --idle: #9aa0a8; --idle-bg: #2b2e33; --link: #7db4ff;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f5f3; --panel: #ffffff; --line: #dcdcd8; --text: #1c1d1f; --dim: #666b73;
+    --wait: #9a6400; --wait-bg: #fdf0d2; --ok: #177a45; --ok-bg: #dff3e7;
+    --bad: #c0271b; --bad-bg: #fde3e0; --idle: #666b73; --idle-bg: #ececea; --link: #1a5fd0;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0 0 2px; }
+.sub { color: var(--dim); font-size: 13px; }
+.dim { color: var(--dim); }
+button, select, input { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--dim); }
+input[type=time], select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+a, .link { color: var(--link); cursor: pointer; text-decoration: underline; background: none; border: 0; padding: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: flex-end; margin: 10px 0 14px; font-size: 13px; }
+.controls label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill.waiting { color: var(--wait); background: var(--wait-bg); border: 1px solid var(--wait); }
+.pill.blocked, .pill.stuck { color: var(--bad); background: var(--bad-bg); }
+.pill.busy { color: var(--ok); background: var(--ok-bg); }
+.pill.idle, .pill.unknown { color: var(--idle); background: var(--idle-bg); }
+.banner { border: 1px solid var(--wait); border-radius: 10px; background: var(--panel); margin-bottom: 14px; }
+.banner h2 { font-size: 15px; margin: 0; padding: 10px 16px; }
+.banner .item { display: grid; grid-template-columns: minmax(120px, 220px) 90px 1fr; gap: 12px; padding: 9px 16px; border-top: 1px solid var(--line); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.tile b { display: block; font-size: 24px; line-height: 1.2; }
+.tile span { color: var(--dim); font-size: 12px; }
+.tile.hot b { color: var(--wait); } .tile.bad b { color: var(--bad); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; }
+.card.muted { opacity: .72; }
+.card header { padding: 11px 16px 9px; display: flex; gap: 12px; align-items: flex-start; }
+.card header .grow { flex: 1; min-width: 0; }
+.card header .name { font-size: 16px; font-weight: 700; margin-right: 8px; }
+.card header .meta { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+.card header .meta b { color: var(--text); font-weight: 600; }
+.row { display: grid; grid-template-columns: minmax(110px, 190px) 130px 70px 1fr; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--line); }
+.row .who b { display: block; overflow-wrap: anywhere; }
+.row .who span { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+.row .pills { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.reply { white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.reply.open { display: block; }
+.ask { color: var(--wait); font-weight: 600; overflow-wrap: anywhere; }
+.detail { font-size: 12px; color: var(--dim); margin-top: 3px; overflow-wrap: anywhere; }
+.warn { color: var(--wait); font-weight: 600; } .err { color: var(--bad); font-weight: 600; }
+.empty { text-align: center; color: var(--dim); padding: 50px 0; }
+#conn.off { color: var(--bad); font-weight: 600; }
+@media (max-width: 720px) {
+  .row { grid-template-columns: 1fr auto; }
+  .row .body { grid-column: 1 / -1; } .row .age { display: none; }
+  .banner .item { grid-template-columns: 1fr; gap: 2px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Claude sessions</h1>
+  <div id="summary">connecting…</div>
+  <div class="sub"><span id="conn"></span><span id="extra"></span></div>
+
+  <div class="controls">
+    <label title="Show a desktop notification when a session starts waiting on you"><input type="checkbox" id="optNotify"> desktop alerts</label>
+    <label title="Play a short sound"><input type="checkbox" id="optChime"> chime</label>
+    <label title="Say which session is waiting"><input type="checkbox" id="optVoice"> voice</label>
+    <label title="Also alert when a session finishes a turn that took over a minute"><input type="checkbox" id="optTurn"> when a turn finishes</label>
+    <label title="Alert again while a session is still waiting">remind
+      <select id="optRemind">
+        <option value="0">never</option><option value="2">every 2 min</option><option value="5">every 5 min</option>
+        <option value="10">every 10 min</option><option value="30">every 30 min</option>
+      </select></label>
+    <label title="No sound, voice or notifications during these hours"><input type="checkbox" id="optQuiet"> quiet
+      <input type="time" id="optQuietFrom"> to <input type="time" id="optQuietTo"></label>
+    <span id="quietNow" class="dim"></span>
+    <button id="btnTest" title="Fire one alert with the current settings">Test alert</button>
+  </div>
+
+  <div id="banner"></div>
+  <div id="tiles" class="tiles"></div>
+  <div id="projects"></div>
+</main>
+<script>
+"use strict";
+
+// ---- settings (kept in this browser) --------------------------------------
+const DEFAULTS = { notify: false, chime: true, voice: false, turn: false, remind: 5,
+                   quiet: false, quietFrom: "22:00", quietTo: "07:00", muted: [] };
+let settings = Object.assign({}, DEFAULTS);
+try { Object.assign(settings, JSON.parse(localStorage.getItem("ccmon.settings") || "{}")); } catch (e) {}
+function save() { try { localStorage.setItem("ccmon.settings", JSON.stringify(settings)); } catch (e) {} }
+
+const $ = id => document.getElementById(id);
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = text;
+  return e;
+}
+
+// ---- formatting -----------------------------------------------------------
+function age(ms) {
+  if (!ms) return "";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min";
+  if (s < 172800) return (s / 3600).toFixed(1) + " h";
+  return Math.floor(s / 86400) + " d";
+}
+const ago = ms => { const a = age(ms); return a === "just now" || !a ? a : a + " ago"; };
+function bytes(n) {
+  if (n >= 2 ** 30) return (n / 2 ** 30).toFixed(1) + " GB";
+  if (n >= 2 ** 20) return Math.round(n / 2 ** 20) + " MB";
+  if (n >= 1024) return Math.round(n / 1024) + " KB";
+  return n + " B";
+}
+function tokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1000) return Math.floor(n / 1000) + "k";
+  return String(n);
+}
+const money = n => "$" + (n >= 100 ? n.toFixed(0) : n.toFixed(2));
+const LABEL = { waiting: "waiting on you", blocked: "blocked", busy: "working", idle: "idle", unknown: "unknown" };
+const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+
+// ---- rendering ------------------------------------------------------------
+let snap = null;
+const openReplies = new Set();     // pids whose reply is expanded
+const shownPrivate = new Map();    // pid -> reply text fetched on request
+
+function render() {
+  if (!snap) return;
+  const c = snap.counts;
+  $("summary").textContent = [c.blocked + " blocked", c.waiting + " waiting on you",
+    c.busy + " working", c.idle + " idle"].join(" · ");
+  const extra = [];
+  if (snap.host && snap.host.memTotal)
+    extra.push(bytes(snap.host.memAvailable) + " of " + bytes(snap.host.memTotal) + " RAM free");
+  if (snap.showCost && snap.costToday > 0) extra.push("about " + money(snap.costToday) + " today in these sessions");
+  $("extra").textContent = extra.length ? " · " + extra.join(" · ") : "";
+
+  renderBanner();
+  renderTiles(c);
+  const box = $("projects");
+  box.replaceChildren();
+  if (!snap.projects.length) box.append(el("div", "empty", "No Claude Code sessions are running."));
+  for (const p of snap.projects) box.append(renderProject(p));
+  updateTab(c);
+}
+
+function renderBanner() {
+  const box = $("banner");
+  box.replaceChildren();
+  const items = [];
+  for (const p of snap.projects) for (const s of p.sessions)
+    if (s.state === "waiting" || s.state === "blocked") items.push([p, s]);
+  if (!items.length) return;
+  const b = el("div", "banner");
+  b.append(el("h2", "", "Waiting on you"));
+  for (const [p, s] of items) {
+    const row = el("div", "item");
+    row.append(el("b", "", p.name + (p.sessions.length > 1 ? " / " + s.name : "")));
+    row.append(el("span", "dim", "for " + (age(s.since) === "just now" ? "under a minute" : age(s.since))));
+    row.append(el("span", "", needs(s)));
+    b.append(row);
+  }
+  box.append(b);
+}
+
+function needs(s) {
+  if (s.state === "blocked") return "Blocked: it cannot continue on its own.";
+  return [s.waitingFor, s.asking].filter(Boolean).join(" — ") || "needs your answer";
+}
+
+function renderTiles(c) {
+  const box = $("tiles");
+  box.replaceChildren();
+  const tile = (n, label, cls) => {
+    const t = el("div", "tile" + (n && cls ? " " + cls : ""));
+    t.append(el("b", "", n), el("span", "", label));
+    box.append(t);
+  };
+  tile(c.sessions, "sessions running");
+  tile(c.waiting, "waiting on you", "hot");
+  tile(c.blocked, "blocked", "bad");
+  tile(c.busy, "working");
+  tile(c.idle, "idle");
+  tile(c.stuck, "possibly stuck", "bad");
+}
+
+function renderProject(p) {
+  const muted = settings.muted.includes(p.path);
+  const card = el("section", "card" + (muted ? " muted" : ""));
+  const head = el("header");
+  const grow = el("div", "grow");
+  const top = el("div");
+  top.append(el("span", "name", p.name), el("span", "pill " + p.state, LABEL[p.state] || p.state));
+  grow.append(top);
+
+  const meta = el("div", "meta");
+  const part = (label, value) => {
+    if (meta.childNodes.length) meta.append(" · ");
+    if (label) meta.append(label + " ");
+    if (value) meta.append(el("b", "", value));
+  };
+  part(plural(p.sessions.length, "session"));
+  part(p.path);
+  if (p.lastTyped) part("last typed", ago(p.lastTyped));
+  const v = p.vcs;
+  if (v && v.branch) {
+    let g = v.branch;
+    if (v.system === "svn") { if (v.revision) g += ", r" + v.revision; }
+    else g += v.upstream ? ", " + v.ahead + " ahead" : ", no upstream";
+    if (v.behind) g += ", " + v.behind + " behind";
+    part(v.system === "svn" ? "svn" : "branch", g);
+    if (v.dirty) part("", plural(v.dirty, "uncommitted file"));
+  }
+  grow.append(meta);
+  const mute = el("button", "", muted ? "Unmute" : "Mute");
+  mute.title = "Stop alerts for this project";
+  mute.addEventListener("click", () => {
+    settings.muted = muted ? settings.muted.filter(x => x !== p.path) : settings.muted.concat(p.path);
+    save(); render();
+  });
+  head.append(grow, mute);
+  card.append(head);
+  for (const s of p.sessions) card.append(renderSession(s));
+  return card;
+}
+
+function renderSession(s) {
+  const row = el("div", "row");
+  const who = el("div", "who");
+  who.append(el("b", "", s.name), el("span", "", s.title || "pid " + s.pid));
+  const pills = el("div", "pills");
+  pills.append(el("span", "pill " + s.state, LABEL[s.state] || s.state));
+  if (s.stuck) { const st = el("span", "pill stuck", "stuck?"); st.title = s.stuckReason || ""; pills.append(st); }
+  const body = el("div", "body");
+
+  if (s.state === "waiting" || s.state === "blocked") body.append(el("div", "ask", needs(s)));
+  if (s.stuck) body.append(el("div", "err", "Possibly stuck: " + s.stuckReason + "."));
+
+  // Replies are Markdown; drop the emphasis marks rather than render it.
+  const text = (s.reply || shownPrivate.get(s.pid) || "").replace(/\*\*|`/g, "");
+  if (text) {
+    const r = el("div", "reply" + (openReplies.has(s.pid) ? " open" : ""), text);
+    r.title = "Click to expand or collapse";
+    r.addEventListener("click", () => {
+      openReplies.has(s.pid) ? openReplies.delete(s.pid) : openReplies.add(s.pid);
+      r.classList.toggle("open");
+    });
+    body.append(r);
+  } else if (s.replyHidden) {
+    const d = el("div", "", "Reply text is hidden in private mode. ");
+    const show = el("button", "link", "Show");
+    show.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/reply?pid=" + s.pid);
+        shownPrivate.set(s.pid, (await res.json()).reply || "(empty)");
+        render();
+      } catch (e) {}
+    });
+    d.append(show);
+    body.append(d);
+  } else if (!s.transcriptBytes) {
+    body.append(el("div", "dim", "No transcript yet."));
+  }
+
+  const detail = el("div", "detail");
+  const add = (text, cls) => {
+    if (detail.childNodes.length) detail.append(" · ");
+    detail.append(cls ? el("span", cls, text) : text);
+  };
+  if (s.lastTool) {
+    const desc = s.lastToolDesc ? " (" + s.lastToolDesc + ")" : "";
+    add((s.toolRunning ? "in flight: " : "last tool " + age(s.lastToolAt) + ": ") + s.lastTool + desc);
+  }
+  if (s.model) add(s.model.replace(/^claude-/, ""));
+  if (s.contextLimit) {
+    const t = "context " + tokens(s.contextTokens) + " of " + tokens(s.contextLimit) + " (" + Math.round(s.contextPct) + "%)";
+    add(s.contextNear ? t + ", near the limit" : t, s.contextNear ? "warn" : "");
+  } else if (s.contextTokens) add("context " + tokens(s.contextTokens));
+  if (s.transcriptBytes) add("transcript " + bytes(s.transcriptBytes));
+  if (s.permissionMode) add(s.unguarded ? "permission prompts bypassed" : "mode " + s.permissionMode, s.unguarded ? "warn" : "");
+  if (s.rss) add(bytes(s.rss) + " RAM, " + Math.round(s.cpu) + "% CPU");
+  if (s.tokens) {
+    let t = tokens(s.tokens) + " tokens";
+    if (snap.showCost && s.costKnown && s.cost > 0) t += ", about " + money(s.cost);
+    if (!s.totalsComplete) t += " (still counting)";
+    add(t);
+  }
+  if (s.toolErrors) add(plural(s.toolErrors, "tool error") + " recently", "err");
+  body.append(detail);
+
+  row.append(who, pills, el("div", "age dim", age(s.since)), body);
+  return row;
+}
+
+// ---- tab title and icon ---------------------------------------------------
+let lastIcon = "";
+function updateTab(c) {
+  const n = c.waiting + c.blocked;
+  document.title = (n ? "(" + n + ") " : "") + "Claude sessions";
+  const css = getComputedStyle(document.documentElement);
+  const color = css.getPropertyValue(n ? "--wait" : c.busy ? "--ok" : "--idle").trim();
+  const key = n + color;
+  if (key === lastIcon) return;
+  lastIcon = key;
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 32;
+  const g = cv.getContext("2d");
+  g.fillStyle = color;
+  g.beginPath(); g.arc(16, 16, 15, 0, 2 * Math.PI); g.fill();
+  if (n) {
+    g.fillStyle = "#000"; g.font = "bold 22px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(n > 9 ? "9+" : String(n), 16, 17);
+  }
+  let link = document.querySelector("link[rel=icon]");
+  if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.append(link); }
+  link.href = cv.toDataURL("image/png");
+}
+
+// ---- alerts ---------------------------------------------------------------
+function inQuietHours() {
+  if (!settings.quiet) return false;
+  const mins = t => { const [h, m] = String(t).split(":").map(Number); return h * 60 + (m || 0); };
+  const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
+  const from = mins(settings.quietFrom), to = mins(settings.quietTo);
+  return from <= to ? cur >= from && cur < to : cur >= from || cur < to;
+}
+
+let audio = null;
+function chime() {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+    const t0 = audio.currentTime;
+    [[880, 0], [1175, 0.16]].forEach(([freq, at]) => {
+      const osc = audio.createOscillator(), gain = audio.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0 + at);
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.3);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t0 + at); osc.stop(t0 + at + 0.32);
+    });
+  } catch (e) {}
+}
+// Browsers only allow sound after the page has been clicked once.
+document.addEventListener("click", () => {
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+}, { once: true });
+
+function fire(title, body, spoken, tag) {
+  if (inQuietHours()) return;
+  if (settings.chime) chime();
+  if (settings.voice && "speechSynthesis" in window) {
+    try { speechSynthesis.speak(new SpeechSynthesisUtterance(spoken)); } catch (e) {}
+  }
+  if (settings.notify && "Notification" in window && Notification.permission === "granted") {
+    try {
+      const n = new Notification(title, { body, tag });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) {}
+  }
+}
+
+const seen = new Map();   // pid -> what the last snapshot said
+const alerted = new Map(); // pid -> when it was last alerted while waiting
+let firstSnapshot = true;
+
+function checkAlerts() {
+  const live = new Set();
+  for (const p of snap.projects) for (const s of p.sessions) {
+    live.add(s.pid);
+    const prev = seen.get(s.pid);
+    seen.set(s.pid, { state: s.state, since: s.since, near: !!s.contextNear, stuck: !!s.stuck });
+    const quiet = settings.muted.includes(p.path);
+    const who = p.name + (p.sessions.length > 1 ? ", " + s.name : "");
+    const attention = s.state === "waiting" || s.state === "blocked";
+    if (!attention) alerted.delete(s.pid);
+    if (firstSnapshot || quiet) { if (attention && !alerted.has(s.pid)) alerted.set(s.pid, Date.now()); continue; }
+
+    if (attention && (!prev || prev.state !== s.state)) {
+      alerted.set(s.pid, Date.now());
+      fire(who + " is waiting on you", needs(s), who + " is waiting on you", "ccmon-" + s.pid);
+    } else if (attention && settings.remind > 0 && Date.now() - (alerted.get(s.pid) || 0) >= settings.remind * 60000) {
+      alerted.set(s.pid, Date.now());
+      fire(who + " is still waiting on you", needs(s), who + " is still waiting on you", "ccmon-" + s.pid);
+    } else if (settings.turn && s.state === "idle" && prev && prev.state === "busy" && s.since - prev.since >= 60000) {
+      fire(who + " finished its turn", s.reply || "", who + " has finished", "ccmon-" + s.pid);
+    }
+    if (prev && s.contextNear && !prev.near)
+      fire(who + " is near its context limit", "Context is " + Math.round(s.contextPct) + "% full.", who + " is near its context limit", "ccmon-ctx-" + s.pid);
+    if (prev && s.stuck && !prev.stuck)
+      fire(who + " may be stuck", s.stuckReason || "", who + " may be stuck", "ccmon-stuck-" + s.pid);
+  }
+  for (const pid of [...seen.keys()]) if (!live.has(pid)) { seen.delete(pid); alerted.delete(pid); openReplies.delete(pid); shownPrivate.delete(pid); }
+  firstSnapshot = false;
+}
+
+// ---- controls -------------------------------------------------------------
+function bind(id, key, kind) {
+  const e = $(id);
+  if (kind === "check") e.checked = !!settings[key]; else e.value = settings[key];
+  e.addEventListener("change", async () => {
+    settings[key] = kind === "check" ? e.checked : kind === "num" ? Number(e.value) : e.value;
+    if (key === "notify" && e.checked && "Notification" in window && Notification.permission !== "granted") {
+      const answer = await Notification.requestPermission();
+      if (answer !== "granted") { settings.notify = false; e.checked = false; }
+    }
+    save(); showQuiet();
+  });
+}
+bind("optNotify", "notify", "check"); bind("optChime", "chime", "check"); bind("optVoice", "voice", "check");
+bind("optTurn", "turn", "check"); bind("optRemind", "remind", "num"); bind("optQuiet", "quiet", "check");
+bind("optQuietFrom", "quietFrom"); bind("optQuietTo", "quietTo");
+function showQuiet() { $("quietNow").textContent = inQuietHours() ? "quiet now" : ""; }
+$("btnTest").addEventListener("click", () => {
+  if (inQuietHours()) { $("quietNow").textContent = "quiet now: alerts are off"; return; }
+  fire("Test alert", "This is what an alert looks like.", "A session is waiting on you", "ccmon-test");
+});
+
+// ---- live connection ------------------------------------------------------
+function connect() {
+  const es = new EventSource("/api/events");
+  const alive = () => { $("conn").className = ""; $("conn").textContent = "live"; };
+  es.addEventListener("snapshot", ev => {
+    try { snap = JSON.parse(ev.data); } catch (e) { return; }
+    alive(); checkAlerts(); render();
+  });
+  es.addEventListener("ping", alive);
+  es.onerror = () => { $("conn").className = "off"; $("conn").textContent = "disconnected: is ccmon still running?"; };
+}
+connect();
+showQuiet();
+// Ages, quiet hours and reminders move on even when no session changes.
+setInterval(() => { if (snap) { checkAlerts(); render(); } showQuiet(); }, 15000);
+</script>
+</body>
+</html>

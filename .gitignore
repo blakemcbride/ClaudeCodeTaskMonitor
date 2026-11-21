@@ -1,0 +1,7 @@
+# built programs
+/ccmon
+/ccmon.exe
+/dist/
+
+# someone else's screen, kept locally for reference only
+/ClaudeCodeTaskManager.png
