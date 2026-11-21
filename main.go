@@ -236,6 +236,18 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 				label += " (stuck?)"
 			}
 			fmt.Fprintf(w, "  %-15s %s  pid %d  %s\n", label, s.Name, s.PID, age(s.Since, now))
+			if s.Model != "" || s.ContextTokens > 0 {
+				line := strings.TrimPrefix(s.Model, "claude-")
+				if s.ContextLimit > 0 {
+					line += fmt.Sprintf("  context %.0f%% (%s of %s)", s.ContextPct, tokens(s.ContextTokens), tokens(s.ContextLimit))
+					if s.ContextNear {
+						line += "  NEAR THE LIMIT"
+					}
+				} else if s.ContextTokens > 0 {
+					line += "  context " + tokens(s.ContextTokens)
+				}
+				fmt.Fprintf(w, "      %s\n", strings.TrimSpace(line))
+			}
 			if s.State == model.Waiting {
 				fmt.Fprintf(w, "      needs: %s\n", strings.TrimPrefix(s.WaitingFor+" — "+s.Asking, " — "))
 			}
@@ -254,14 +266,6 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 					t = "running: " + s.LastTool
 				}
 				d = append(d, t)
-			}
-			if s.Model != "" {
-				d = append(d, s.Model)
-			}
-			if s.ContextLimit > 0 {
-				d = append(d, fmt.Sprintf("context %s of %s (%.0f%%)", tokens(s.ContextTokens), tokens(s.ContextLimit), s.ContextPct))
-			} else if s.ContextTokens > 0 {
-				d = append(d, "context "+tokens(s.ContextTokens))
 			}
 			if s.TranscriptBytes > 0 {
 				d = append(d, "transcript "+size(uint64(s.TranscriptBytes)))

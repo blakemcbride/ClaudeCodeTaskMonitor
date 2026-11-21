@@ -51,7 +51,7 @@ a, .link { color: var(--link); cursor: pointer; text-decoration: underline; back
 .card header .name { font-size: 16px; font-weight: 700; margin-right: 8px; }
 .card header .meta { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
 .card header .meta b { color: var(--text); font-weight: 600; }
-.row { display: grid; grid-template-columns: minmax(110px, 190px) 130px 70px 1fr; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: minmax(110px, 180px) 125px 175px 1fr; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--line); }
 .row .who b { display: block; overflow-wrap: anywhere; }
 .row .who span { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
 .row .pills { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
@@ -59,13 +59,20 @@ a, .link { color: var(--link); cursor: pointer; text-decoration: underline; back
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .reply.open { display: block; }
 .ask { color: var(--wait); font-weight: 600; overflow-wrap: anywhere; }
+.row .age { font-size: 12px; }
+.meter .model { font-weight: 700; overflow-wrap: anywhere; }
+.meter .bar { height: 8px; border-radius: 4px; background: var(--idle-bg); margin: 5px 0 3px; overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--ok); }
+.meter.near .bar i { background: var(--wait); } .meter.full .bar i { background: var(--bad); }
+.meter .ctx { font-size: 13px; } .meter .ctx b { font-size: 15px; }
+.meter.near .ctx b { color: var(--wait); } .meter.full .ctx b { color: var(--bad); }
 .detail { font-size: 12px; color: var(--dim); margin-top: 3px; overflow-wrap: anywhere; }
 .warn { color: var(--wait); font-weight: 600; } .err { color: var(--bad); font-weight: 600; }
 .empty { text-align: center; color: var(--dim); padding: 50px 0; }
 #conn.off { color: var(--bad); font-weight: 600; }
 @media (max-width: 720px) {
   .row { grid-template-columns: 1fr auto; }
-  .row .body { grid-column: 1 / -1; } .row .age { display: none; }
+  .row .body, .row .meter { grid-column: 1 / -1; }
   .banner .item { grid-template-columns: 1fr; gap: 2px; }
 }
 </style>
@@ -291,11 +298,6 @@ function renderSession(s) {
     const desc = s.lastToolDesc ? " (" + s.lastToolDesc + ")" : "";
     add((s.toolRunning ? "in flight: " : "last tool " + age(s.lastToolAt) + ": ") + s.lastTool + desc);
   }
-  if (s.model) add(s.model.replace(/^claude-/, ""));
-  if (s.contextLimit) {
-    const t = "context " + tokens(s.contextTokens) + " of " + tokens(s.contextLimit) + " (" + Math.round(s.contextPct) + "%)";
-    add(s.contextNear ? t + ", near the limit" : t, s.contextNear ? "warn" : "");
-  } else if (s.contextTokens) add("context " + tokens(s.contextTokens));
   if (s.transcriptBytes) add("transcript " + bytes(s.transcriptBytes));
   if (s.permissionMode) add(s.unguarded ? "permission prompts bypassed" : "mode " + s.permissionMode, s.unguarded ? "warn" : "");
   if (s.rss) add(bytes(s.rss) + " RAM, " + Math.round(s.cpu) + "% CPU");
@@ -308,7 +310,30 @@ function renderSession(s) {
   if (s.toolErrors) add(plural(s.toolErrors, "tool error") + " recently", "err");
   body.append(detail);
 
-  row.append(who, pills, el("div", "age dim", age(s.since)), body);
+  pills.append(el("span", "age dim", age(s.since)));
+
+  // Model and context get their own column: they are what you check most.
+  const full = s.contextPct >= 95;
+  const meter = el("div", "meter" + (full ? " full" : s.contextNear ? " near" : ""));
+  meter.append(el("div", "model", s.model ? s.model.replace(/^claude-/, "") : "model unknown"));
+  if (s.contextLimit) {
+    const bar = el("div", "bar"), fill = el("i");
+    fill.style.width = Math.min(100, s.contextPct).toFixed(1) + "%";
+    bar.append(fill);
+    const ctx = el("div", "ctx");
+    ctx.append(el("b", "", Math.round(s.contextPct) + "%"), " · " + tokens(s.contextTokens) + " of " + tokens(s.contextLimit));
+    meter.append(bar, ctx);
+    if (s.contextNear) meter.append(el("div", "warn", full ? "context almost full" : "near the limit"));
+    meter.title = "Context in use: " + s.contextTokens.toLocaleString() + " of " + s.contextLimit.toLocaleString() + " tokens";
+  } else if (s.contextTokens) {
+    const ctx = el("div", "ctx");
+    ctx.append(el("b", "", tokens(s.contextTokens)), " tokens of context");
+    meter.append(ctx);
+  } else {
+    meter.append(el("div", "ctx dim", "no context yet"));
+  }
+
+  row.append(who, pills, meter, body);
   return row;
 }
 
