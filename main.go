@@ -194,13 +194,25 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 	if c.Stuck > 0 {
 		fmt.Fprintf(w, " · %d possibly stuck", c.Stuck)
 	}
-	if snap.Host.MemTotal > 0 {
-		fmt.Fprintf(w, " · %s RAM free", size(snap.Host.MemAvailable))
-	}
 	if snap.ShowCost && snap.CostToday > 0 {
 		fmt.Fprintf(w, " · about $%.2f today", snap.CostToday)
 	}
 	fmt.Fprintln(w)
+	if h := snap.Host; h.MemTotal > 0 {
+		used := h.MemTotal - min(h.MemAvailable, h.MemTotal)
+		var sessions uint64
+		for _, p := range snap.Projects {
+			for _, s := range p.Sessions {
+				sessions += s.RSS
+			}
+		}
+		fmt.Fprintf(w, "RAM: %.0f%% used · %s free of %s · Claude sessions use %s",
+			float64(used)/float64(h.MemTotal)*100, size(h.MemAvailable), size(h.MemTotal), size(sessions))
+		if h.SwapTotal > 0 {
+			fmt.Fprintf(w, " · swap %s of %s", size(h.SwapUsed), size(h.SwapTotal))
+		}
+		fmt.Fprintln(w)
+	}
 	for _, p := range snap.Projects {
 		fmt.Fprintf(w, "\n%s  %s", p.Name, p.Path)
 		if g := p.VCS; g != nil && g.Branch != "" {

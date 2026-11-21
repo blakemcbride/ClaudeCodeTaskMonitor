@@ -66,6 +66,11 @@ For a terminal, or over SSH:
 
 ## What it shows
 
+A panel at the top shows the machine's memory: how much is free, how much the
+Claude sessions are using (including the programs they started) against
+everything else, and swap. It turns amber when less than 15% is free and red
+below 7%.
+
 Sessions are grouped by working directory. Each project shows its path, when
 you last typed in it, and its git or Subversion state. Each session shows:
 
@@ -80,8 +85,7 @@ you last typed in it, and its git or Subversion state. Each session shows:
   flight.
 - Model, context used and how close it is to the limit, transcript size and
   permission mode.
-- Memory and CPU of the session and everything it started, and the host's
-  free RAM.
+- Memory and CPU of the session and everything it started.
 - Tokens used and an estimated cost.
 - Recent tool errors, and a **stuck?** flag when a session has been working
   with no activity for 15 minutes or keeps failing the same tool call.
@@ -93,7 +97,8 @@ running with permission prompts bypassed.
 
 The controls at the top of the page turn on a chime, a spoken message and
 desktop notifications. They fire when a session starts waiting on you,
-becomes blocked, nears its context limit or looks stuck.
+becomes blocked, nears its context limit or looks stuck, and when the
+machine's free RAM falls below 15% and again below 7%.
 
 - **remind** repeats the alert while a session is still waiting.
 - **when a turn finishes** also alerts when a session goes idle after working

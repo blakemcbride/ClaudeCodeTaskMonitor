@@ -46,7 +46,9 @@ type Stats struct {
 // Host is machine-wide memory.
 type Host struct {
 	MemTotal     uint64 `json:"memTotal"`
-	MemAvailable uint64 `json:"memAvailable"`
+	MemAvailable uint64 `json:"memAvailable"` // usable without swapping
+	SwapTotal    uint64 `json:"swapTotal"`
+	SwapUsed     uint64 `json:"swapUsed"`
 }
 
 // Sampler remembers CPU times between calls so it can report a rate.
@@ -127,11 +129,15 @@ func (s *Sampler) Sample(pids []int) map[int]Stats {
 	return out
 }
 
-// HostMemory returns machine-wide memory figures.
+// HostMemory returns machine-wide memory and swap figures.
 func HostMemory() Host {
 	vm, err := mem.VirtualMemory()
 	if err != nil || vm == nil {
 		return Host{}
 	}
-	return Host{MemTotal: vm.Total, MemAvailable: vm.Available}
+	h := Host{MemTotal: vm.Total, MemAvailable: vm.Available}
+	if sw, err := mem.SwapMemory(); err == nil && sw != nil {
+		h.SwapTotal, h.SwapUsed = sw.Total, sw.Used
+	}
+	return h
 }

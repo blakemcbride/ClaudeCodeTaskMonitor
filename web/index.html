@@ -29,6 +29,16 @@ button { background: var(--panel); border: 1px solid var(--line); border-radius:
 button:hover { border-color: var(--dim); }
 input[type=time], select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 a, .link { color: var(--link); cursor: pointer; text-decoration: underline; background: none; border: 0; padding: 0; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; justify-content: space-between; }
+.ram { flex: 1 1 380px; max-width: 560px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; }
+.ram .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.ram .head b { font-size: 18px; }
+.ram .bar { display: flex; height: 12px; border-radius: 6px; background: var(--idle-bg); margin: 6px 0 5px; overflow: hidden; }
+.ram .bar .mine { background: var(--link); } .ram .bar .other { background: var(--idle); }
+.ram.low { border-color: var(--wait); } .ram.low .head b { color: var(--wait); }
+.ram.critical { border-color: var(--bad); } .ram.critical .head b { color: var(--bad); }
+.ram .key { font-size: 12px; color: var(--dim); }
+.ram .key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
 .controls { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: flex-end; margin: 10px 0 14px; font-size: 13px; }
 .controls label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -79,9 +89,14 @@ a, .link { color: var(--link); cursor: pointer; text-decoration: underline; back
 </head>
 <body>
 <main>
-  <h1>Claude sessions</h1>
-  <div id="summary">connecting…</div>
-  <div class="sub"><span id="conn"></span><span id="extra"></span></div>
+  <div class="top">
+    <div>
+      <h1>Claude sessions</h1>
+      <div id="summary">connecting…</div>
+      <div class="sub"><span id="conn"></span><span id="extra"></span></div>
+    </div>
+    <div id="ram"></div>
+  </div>
 
   <div class="controls">
     <label title="Show a desktop notification when a session starts waiting on you"><input type="checkbox" id="optNotify"> desktop alerts</label>
@@ -157,11 +172,10 @@ function render() {
   $("summary").textContent = [c.blocked + " blocked", c.waiting + " waiting on you",
     c.busy + " working", c.idle + " idle"].join(" · ");
   const extra = [];
-  if (snap.host && snap.host.memTotal)
-    extra.push(bytes(snap.host.memAvailable) + " of " + bytes(snap.host.memTotal) + " RAM free");
   if (snap.showCost && snap.costToday > 0) extra.push("about " + money(snap.costToday) + " today in these sessions");
   $("extra").textContent = extra.length ? " · " + extra.join(" · ") : "";
 
+  renderRam();
   renderBanner();
   renderTiles(c);
   const box = $("projects");
@@ -169,6 +183,48 @@ function render() {
   if (!snap.projects.length) box.append(el("div", "empty", "No Claude Code sessions are running."));
   for (const p of snap.projects) box.append(renderProject(p));
   updateTab(c);
+}
+
+// Free RAM below these shares of the total is flagged.
+const RAM_LOW = 0.15, RAM_CRITICAL = 0.07;
+function ramLevel() {
+  const h = snap && snap.host;
+  if (!h || !h.memTotal) return "";
+  const free = h.memAvailable / h.memTotal;
+  return free < RAM_CRITICAL ? "critical" : free < RAM_LOW ? "low" : "";
+}
+
+function renderRam() {
+  const box = $("ram");
+  box.replaceChildren();
+  const h = snap.host;
+  if (!h || !h.memTotal) return;
+  let mine = 0;
+  for (const p of snap.projects) for (const s of p.sessions) mine += s.rss || 0;
+  const used = Math.max(0, h.memTotal - h.memAvailable);
+  mine = Math.min(mine, used);
+  const level = ramLevel();
+  const panel = el("div", "ram" + (level ? " " + level : ""));
+  const head = el("div", "head");
+  const left = el("span");
+  left.append("RAM ", el("b", "", bytes(h.memAvailable) + " free"), " of " + bytes(h.memTotal));
+  head.append(left, el("span", "dim", Math.round(used / h.memTotal * 100) + "% used" +
+    (level === "critical" ? " — very low" : level === "low" ? " — running low" : "")));
+  const bar = el("div", "bar");
+  const seg = (cls, n) => { const i = el("i", cls); i.style.width = (n / h.memTotal * 100).toFixed(2) + "%"; bar.append(i); };
+  seg("mine", mine); seg("other", used - mine);
+  const key = el("div", "key");
+  const item = (color, text) => {
+    if (key.childNodes.length) key.append(" \u00a0 ");
+    if (color) { const dot = el("i"); dot.style.background = "var(" + color + ")"; key.append(dot); }
+    key.append(text);
+  };
+  item("--link", "Claude sessions " + bytes(mine));
+  item("--idle", "everything else " + bytes(used - mine));
+  if (h.swapTotal) item("", "swap " + bytes(h.swapUsed) + " of " + bytes(h.swapTotal));
+  panel.append(head, bar, key);
+  panel.title = "Free means available without swapping. Session memory includes the programs each session started.";
+  box.append(panel);
 }
 
 function renderBanner() {
@@ -406,11 +462,23 @@ function fire(title, body, spoken, tag) {
   }
 }
 
+let lastRamLevel = "";
+function checkRam() {
+  const level = ramLevel();
+  if (!firstSnapshot && level && level !== lastRamLevel && (level === "critical" || !lastRamLevel)) {
+    const h = snap.host;
+    fire("RAM is " + (level === "critical" ? "very low" : "running low"),
+      bytes(h.memAvailable) + " free of " + bytes(h.memTotal) + ".", "Memory is running low", "ccmon-ram");
+  }
+  lastRamLevel = level;
+}
+
 const seen = new Map();   // pid -> what the last snapshot said
 const alerted = new Map(); // pid -> when it was last alerted while waiting
 let firstSnapshot = true;
 
 function checkAlerts() {
+  checkRam();
   const live = new Set();
   for (const p of snap.projects) for (const s of p.sessions) {
     live.add(s.pid);
