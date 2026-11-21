@@ -104,7 +104,7 @@ you last typed in it, and its git or Subversion state. Each session shows:
 - Recent tool errors, and a **stuck?** flag when a session has been working
   with no activity for 15 minutes or keeps failing the same tool call.
 
-Highlighted: context over 85%, tool errors, stuck sessions, and sessions
+Highlighted: context over 85%, three or more recent tool errors, stuck sessions, and sessions
 running with permission prompts bypassed.
 
 ## Alerts

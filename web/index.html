@@ -426,7 +426,8 @@ function renderSession(s) {
     if (!s.totalsComplete) t += " (still counting)";
     add(t);
   }
-  if (s.toolErrors) add(plural(s.toolErrors, "tool error") + " recently", "err");
+  // A failed command or two is routine; only a run of them is worth red.
+  if (s.toolErrors) add(plural(s.toolErrors, "tool error") + " recently", s.toolErrors >= 3 ? "err" : "");
   body.append(detail);
 
   pills.append(el("span", "age dim", age(s.since)));
