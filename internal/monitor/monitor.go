@@ -117,6 +117,12 @@ func (c *Collector) Collect() model.Snapshot {
 	return snap
 }
 
+// FetchUsage refreshes the plan usage figures from Anthropic on a timer until
+// stop is closed.
+func (c *Collector) FetchUsage(stop <-chan struct{}, every time.Duration) {
+	c.usage.Run(stop, every)
+}
+
 // TotalsPending reports whether any transcript is still being summed.
 func (c *Collector) TotalsPending() bool {
 	c.mu.Lock()

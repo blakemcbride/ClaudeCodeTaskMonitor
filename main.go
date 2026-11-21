@@ -76,6 +76,7 @@ func main() {
 		private   = flag.Bool("private", false, "hide reply text until asked for")
 		noOpen    = flag.Bool("no-open", false, "do not open the browser")
 		noCost    = flag.Bool("no-cost", false, "do not show cost estimates")
+		noFetch   = flag.Bool("no-fetch", false, "do not fetch plan usage from Anthropic; show only what Claude Code cached")
 		cfgFile   = flag.String("config", configPath(), "settings file")
 		claudeDir = flag.String("claude-dir", discover.ConfigDir(), "Claude Code config directory")
 		showVer   = flag.Bool("version", false, "print the version and exit")
@@ -142,6 +143,9 @@ func main() {
 	srv := &server.Server{Collector: col, Static: static, Interval: time.Second}
 	stop := make(chan struct{})
 	go srv.Run(stop)
+	if !*noFetch {
+		go col.FetchUsage(stop, 5*time.Minute)
+	}
 
 	url := "http://" + addr + "/"
 	fmt.Printf("ccmon: serving %s (pid %d; Ctrl-C or kill to stop)\n", url, os.Getpid())

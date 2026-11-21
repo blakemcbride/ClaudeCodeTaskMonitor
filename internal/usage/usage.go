@@ -1,10 +1,14 @@
-// Package usage reads the plan usage figures that Claude Code caches on disk:
-// the same percentages its /usage command shows. Nothing is fetched from the
-// network; the figures are as fresh as Claude Code last left them.
+// Package usage reports the plan usage figures: the same percentages Claude
+// Code's /usage command shows. They come from the copy Claude Code caches on
+// disk and, unless turned off, from asking Anthropic directly on a timer.
 package usage
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,11 +114,24 @@ func Parse(data []byte) *Info {
 	if json.Unmarshal(data, &f) != nil || f.Cached == nil {
 		return nil
 	}
-	info := &Info{FetchedAt: f.Cached.FetchedAtMs, Limits: []Limit{}}
+	info := &Info{FetchedAt: f.Cached.FetchedAtMs, Limits: limitsOf(f.Cached.Utilization)}
 	if f.OAuthAccount != nil {
-		info.Plan = words(strings.TrimPrefix(strings.TrimPrefix(f.OAuthAccount.Tier, "default_"), "claude_"))
+		info.Plan = planName(f.OAuthAccount.Tier)
 	}
-	u := f.Cached.Utilization
+	if len(info.Limits) == 0 {
+		return nil
+	}
+	return info
+}
+
+func planName(tier string) string {
+	return words(strings.TrimPrefix(strings.TrimPrefix(tier, "default_"), "claude_"))
+}
+
+// limitsOf reads a utilization object, as cached by Claude Code or as returned
+// by the usage endpoint.
+func limitsOf(u map[string]json.RawMessage) []Limit {
+	info := &Info{Limits: []Limit{}}
 	var limits []rawLimit
 	if raw, ok := u["limits"]; ok {
 		json.Unmarshal(raw, &limits)
@@ -145,27 +162,115 @@ func Parse(data []byte) *Info {
 			info.Limits = append(info.Limits, l)
 		}
 	}
-	if len(info.Limits) == 0 {
-		return nil
-	}
-	return info
+	return info.Limits
 }
 
-// Reader re-parses the settings file only when it has changed.
+// Reader re-parses the settings file only when it has changed. It can also
+// fetch the figures itself (see Fetch); Read returns whichever is newer.
 type Reader struct {
+	// URL is the usage endpoint. NoFetch turns fetching off.
+	URL     string
+	NoFetch bool
+
 	mu      sync.Mutex
 	paths   []string
+	creds   string // Claude Code's credentials file
 	path    string
 	modTime time.Time
 	size    int64
 	info    *Info
+	fetched *Info
+}
+
+// The endpoint Claude Code's own /usage command reads.
+const usageURL = "https://api.anthropic.com/api/oauth/usage?skip_spend=1"
+
+// Only these fields of the credentials file are decoded.
+type credentialsFile struct {
+	OAuth *struct {
+		AccessToken string `json:"accessToken"`
+		ExpiresAt   int64  `json:"expiresAt"` // ms since epoch
+		Tier        string `json:"rateLimitTier"`
+	} `json:"claudeAiOauth"`
+}
+
+var client = &http.Client{
+	Timeout: 15 * time.Second,
+	// The request carries the login token, so it goes nowhere else.
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+// Fetch asks Anthropic for the current figures, using the login token Claude
+// Code keeps on disk. The token is only read: an expired one is left for
+// Claude Code to renew, because renewing it here would replace the token the
+// running sessions hold. On any failure the earlier figures stand.
+func (r *Reader) Fetch() error {
+	if r.NoFetch {
+		return nil
+	}
+	data, err := os.ReadFile(r.creds)
+	if err != nil {
+		return err // no file: API-key billing, or macOS, where it is in the Keychain
+	}
+	var c credentialsFile
+	if err := json.Unmarshal(data, &c); err != nil {
+		return err
+	}
+	if c.OAuth == nil || c.OAuth.AccessToken == "" {
+		return errors.New("no login token")
+	}
+	if c.OAuth.ExpiresAt > 0 && time.Now().UnixMilli() >= c.OAuth.ExpiresAt {
+		return errors.New("login token expired")
+	}
+	req, err := http.NewRequest(http.MethodGet, r.URL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.OAuth.AccessToken)
+	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	req.Header.Set("User-Agent", "ccmon")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("usage endpoint: %s", resp.Status)
+	}
+	var u map[string]json.RawMessage
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u); err != nil {
+		return err
+	}
+	limits := limitsOf(u)
+	if len(limits) == 0 {
+		return errors.New("usage endpoint: no figures")
+	}
+	r.mu.Lock()
+	r.fetched = &Info{Plan: planName(c.OAuth.Tier), FetchedAt: time.Now().UnixMilli(), Limits: limits}
+	r.mu.Unlock()
+	return nil
+}
+
+// Run fetches now and then on a timer until stop is closed.
+func (r *Reader) Run(stop <-chan struct{}, every time.Duration) {
+	r.Fetch()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			r.Fetch()
+		}
+	}
 }
 
 // NewReader looks for .claude.json inside the Claude config directory (where
 // it lives when CLAUDE_CONFIG_DIR is set) and then beside it (the default,
 // ~/.claude.json next to ~/.claude).
 func NewReader(configDir string) *Reader {
-	return &Reader{paths: []string{
+	return &Reader{URL: usageURL, creds: filepath.Join(configDir, ".credentials.json"), paths: []string{
 		filepath.Join(configDir, ".claude.json"),
 		filepath.Join(filepath.Dir(filepath.Clean(configDir)), ".claude.json"),
 	}}
@@ -175,6 +280,14 @@ func NewReader(configDir string) *Reader {
 func (r *Reader) Read() *Info {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	cached := r.readFile()
+	if r.fetched != nil && (cached == nil || r.fetched.FetchedAt > cached.FetchedAt) {
+		return r.fetched
+	}
+	return cached
+}
+
+func (r *Reader) readFile() *Info {
 	for _, p := range r.paths {
 		fi, err := os.Stat(p)
 		if err != nil {

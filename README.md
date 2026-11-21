@@ -13,7 +13,7 @@ notification.
 
 It is a single program with no runtime to install. It runs on Linux, macOS
 and Windows, reads Claude Code's files without ever writing to them, and
-sends nothing off your machine.
+sends none of your session text off your machine.
 
 > This is an independent project. It is not made or supported by Anthropic.
 
@@ -65,6 +65,7 @@ For a terminal, or over SSH:
 | `-private` | Hide reply text until you click "Show". Useful when sharing your screen. |
 | `-no-open` | Do not open the browser. |
 | `-no-cost` | Do not show cost estimates. |
+| `-no-fetch` | Do not fetch plan usage from Anthropic. See "Privacy and safety". |
 | `-claude-dir DIR` | Claude Code's config directory. Default `$CLAUDE_CONFIG_DIR`, else `~/.claude`. |
 | `-config FILE` | Settings file. See below. |
 
@@ -73,10 +74,12 @@ For a terminal, or over SSH:
 Two panels sit at the top.
 
 **Plan usage** shows how much of your plan's limits you have used and when
-they reset: the same figures as Claude Code's `/usage` command. They are read
-from the copy Claude Code caches on disk, so they are as fresh as the last
-time a session refreshed them; the panel says how old they are. The panel is
-absent when Claude Code has cached nothing, for example with API-key billing.
+they reset: the same figures as Claude Code's `/usage` command. `ccmon` fetches them from Anthropic every five minutes, and the panel says
+how old they are. When it cannot fetch (no network, `-no-fetch`, or macOS,
+where the login token is in the Keychain) it shows the copy Claude Code
+caches on disk, which is only as fresh as the last time a session refreshed
+it. The panel is absent when there are no figures at all, for example with
+API-key billing.
 
 **RAM** shows the machine's memory: how much is free, how much the
 Claude sessions are using (including the programs they started) against
@@ -175,8 +178,14 @@ that starts with it. Prices are US dollars per million tokens.
 - Local only. The server listens on `127.0.0.1`, accepts only `GET`, and
   rejects requests whose `Host` or `Origin` is not its own, so another web
   page in your browser cannot read your session text through it.
-- Nothing is sent anywhere. There is no telemetry and no network use beyond
-  the loopback page.
+- One request leaves the machine: every five minutes `ccmon` asks
+  `api.anthropic.com` for your plan usage, the request Claude Code's own
+  `/usage` command makes, using the login token Claude Code keeps in
+  `~/.claude/.credentials.json`. The token is read, sent only to that
+  address, and never renewed or written; when it has expired `ccmon` waits
+  for Claude Code to renew it. `-no-fetch` turns this off.
+- Nothing else is sent anywhere. There is no telemetry, and no session text
+  ever leaves the machine.
 
 Anyone who can use your account on the machine can open the page, exactly as
 they could read the transcript files directly.
@@ -186,8 +195,9 @@ they could read the transcript files directly.
 Claude Code keeps a small file per running session in
 `~/.claude/sessions/` with its process id, working directory and status, and
 appends each session's conversation to a transcript under
-`~/.claude/projects/`. Plan usage comes from `~/.claude.json`, from which
-only the cached usage figures and the plan name are read. `ccmon` re-reads the session files every second and
+`~/.claude/projects/`. Plan usage is fetched from Anthropic, falling back to
+`~/.claude.json`, from which only the cached usage figures and the plan name
+are read. `ccmon` re-reads the session files every second and
 reads only what has been appended to each transcript, so transcripts of
 several hundred megabytes cost almost nothing to follow.
 
