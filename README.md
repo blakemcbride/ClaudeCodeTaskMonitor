@@ -46,6 +46,10 @@ This starts a server on `http://127.0.0.1:7433/` and opens it in your
 browser. Leave the tab open; it updates by itself within a second or two of a
 session changing state. Stop it with Ctrl-C.
 
+To leave it running in the background, start it with `./ccmon &`. It keeps
+running after you close that terminal; stop it with `kill` and the process id
+it printed, or `pkill ccmon`.
+
 For a terminal, or over SSH:
 
 ```sh

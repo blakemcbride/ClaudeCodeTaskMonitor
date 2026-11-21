@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pkg/browser"
@@ -143,16 +144,19 @@ func main() {
 	go srv.Run(stop)
 
 	url := "http://" + addr + "/"
-	fmt.Println("ccmon: serving", url, "(Ctrl-C to stop)")
+	fmt.Printf("ccmon: serving %s (pid %d; Ctrl-C or kill to stop)\n", url, os.Getpid())
 	if !*noOpen {
 		browser.Stdout, browser.Stderr = io.Discard, io.Discard
 		if err := browser.OpenURL(url); err != nil {
 			fmt.Println("ccmon: could not open a browser; open the address above yourself")
 		}
 	}
+	// Keep running when the terminal that started ccmon is closed, so that
+	// "ccmon &" behaves like a small service. Ctrl-C and kill still stop it.
+	signal.Ignore(syscall.SIGHUP)
 	go func() {
 		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, os.Interrupt)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig
 		close(stop)
 		ln.Close()
