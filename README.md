@@ -95,6 +95,9 @@ you last typed in it, and its git or Subversion state. Each session shows:
     asked.
   - **blocked**: cannot continue for an outside reason.
   - **working**
+  - **background job**: its turn is over, but a command it started in the
+    background (a build or test run) is still running; it carries on when
+    that finishes. Not flagged as stuck however long it takes.
   - **idle**: finished its turn; your move.
 - The latest reply (click to expand) and the last tool call, or the one in
   flight.

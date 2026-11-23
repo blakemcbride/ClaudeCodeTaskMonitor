@@ -267,7 +267,12 @@ func printText(w io.Writer, snap model.Snapshot, now time.Time) {
 				model.Waiting: "WAITING ON YOU", model.Blocked: "BLOCKED",
 				model.Busy: "working", model.Idle: "idle",
 			}[s.State]
-			if label == "" {
+			switch {
+			case s.Background:
+				label = "background job"
+			case s.RawStatus != "":
+				label = s.RawStatus
+			case label == "":
 				label = s.State
 			}
 			if s.Stuck {

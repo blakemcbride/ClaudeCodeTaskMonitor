@@ -370,7 +370,10 @@ function renderSession(s) {
   const who = el("div", "who");
   who.append(el("b", "", s.name), el("span", "", s.title || "pid " + s.pid));
   const pills = el("div", "pills");
-  pills.append(el("span", "pill " + s.state, LABEL[s.state] || s.state));
+  const pill = el("span", "pill " + s.state, s.background ? "background job" : s.rawStatus || LABEL[s.state] || s.state);
+  if (s.background) pill.title = "Its turn is over, but a command it started in the background is still running. It carries on when that finishes.";
+  else if (s.rawStatus) pill.title = "Claude Code reported a status this version of ccmon does not know.";
+  pills.append(pill);
   if (s.remote) {
     const rc = el("span", "pill remote", "remote on");
     rc.title = "Remote Control is on: this session can be driven from claude.ai or the mobile app.";

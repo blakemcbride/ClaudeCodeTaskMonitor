@@ -21,6 +21,10 @@ const (
 	Busy    = "busy"    // working
 	Idle    = "idle"    // finished its turn; your move
 	Unknown = "unknown"
+
+	// shell is what Claude Code writes when a turn has ended but a command
+	// it started in the background is still running. It is shown as Busy.
+	shell = "shell"
 )
 
 func rank(state string) int {
@@ -69,6 +73,8 @@ type Session struct {
 	Kind       string `json:"kind,omitempty"`
 	Version    string `json:"version,omitempty"`
 	State      string `json:"state"`
+	RawStatus  string `json:"rawStatus,omitempty"`  // the status as written, when State is Unknown
+	Background bool   `json:"background,omitempty"` // turn over, a background command still running
 	WaitingFor string `json:"waitingFor,omitempty"`
 	Remote     bool   `json:"remote,omitempty"` // Remote Control is on
 	Asking     string `json:"asking,omitempty"` // the pending tool call or question
@@ -162,6 +168,8 @@ func stateOf(status string) string {
 	switch status {
 	case Waiting, Blocked, Busy, Idle:
 		return status
+	case shell:
+		return Busy
 	}
 	return Unknown
 }
@@ -174,6 +182,10 @@ func BuildSession(in Input, opt Options, now time.Time) Session {
 		State: stateOf(f.Status), Since: f.StatusUpdatedAt, StartedAt: f.StartedAt,
 		TotalsComplete: true,
 		Remote:         f.BridgeSessionID != "",
+		Background:     f.Status == shell,
+	}
+	if s.State == Unknown {
+		s.RawStatus = f.Status
 	}
 	if s.Name == "" {
 		s.Name = filepath.Base(f.Cwd)
@@ -255,7 +267,8 @@ func BuildSession(in Input, opt Options, now time.Time) Session {
 		switch {
 		case opt.RepeatFailures > 0 && sum.RepeatFailures >= opt.RepeatFailures:
 			s.Stuck, s.StuckReason = true, "the same tool call keeps failing"
-		case opt.StuckAfter > 0 && !last.IsZero() && now.Sub(last) >= opt.StuckAfter:
+		// A background build or test run writes nothing to the transcript.
+		case opt.StuckAfter > 0 && !s.Background && !last.IsZero() && now.Sub(last) >= opt.StuckAfter:
 			s.Stuck, s.StuckReason = true, "busy with no transcript activity"
 		}
 	}

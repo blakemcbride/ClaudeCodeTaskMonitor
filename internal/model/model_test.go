@@ -80,6 +80,18 @@ func TestStuck(t *testing.T) {
 	}
 }
 
+func TestBackgroundShell(t *testing.T) {
+	in := Input{File: file(1, "/p", "shell"), Summary: &transcript.Summary{}, Activity: now.Add(-time.Hour)}
+	s := BuildSession(in, DefaultOptions(), now)
+	if s.State != Busy || !s.Background || s.Stuck || s.RawStatus != "" {
+		t.Fatalf("a background command is working, not unknown or stuck: %+v", s)
+	}
+	s = BuildSession(Input{File: file(1, "/p", "napping")}, DefaultOptions(), now)
+	if s.State != Unknown || s.RawStatus != "napping" {
+		t.Fatalf("an unrecognised status should be kept as written: %+v", s)
+	}
+}
+
 func TestRemoteControl(t *testing.T) {
 	on := file(1, "/p", "idle")
 	on.BridgeSessionID = "session_abc"
